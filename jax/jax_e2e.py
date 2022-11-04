@@ -31,8 +31,8 @@ def load_batch():
     print('target_paddings shape = ', input_paddings.shape)
 
     sharded_padded_batch = {
-        'inputs': (jnp.array(inputs), jnp.array(input_paddings)),
-        'targets': (jnp.array(targets), jnp.array(target_paddings))
+        'inputs': (inputs, input_paddings),
+        'targets': (targets, target_paddings)
     }
 
     return sharded_padded_batch
@@ -70,14 +70,20 @@ def init_optimizer_state(params):
   return jax_utils.replicate(optimizer_state), opt_update_fn
 
 
-def update_step(batch_stats,
-                optimizer_state,
-                params,
-                batch,
-                rng,
-                grad_clip,
-                model_class,
-                opt_update_fn):
+# Defining pmapped update step
+@functools.partial(
+    jax.pmap,
+    axis_name='batch',
+    in_axes=(None, None, 0, 0, 0, 0, None, None),
+    static_broadcasted_argnums=(0, 1))
+def pmapped_train_step(model_class,
+                       opt_update_fn,
+                       batch_stats,
+                       optimizer_state,
+                       params,
+                       batch,
+                       rng,
+                       grad_clip):
 
   def _loss_fn(params):
     """Loss function used for training."""
@@ -88,7 +94,8 @@ def update_step(batch_stats,
         {'params': params, 'batch_stats': batch_stats},
         inputs,
         input_paddings,
-        train=False,
+        train=True,
+        rngs={'dropout' : rng},
         mutable=['batch_stats'])
 
     logprobs = nn.log_softmax(logits)
@@ -117,6 +124,7 @@ def update_step(batch_stats,
   updated_params = optax.apply_updates(params, updates)
   return new_optimizer_state, updated_params, new_batch_stats, jnp.mean(loss), jnp.mean(grad_norm)
 
+
 def main(_):
     sharded_padded_batch = load_batch()
     
@@ -144,12 +152,6 @@ def main(_):
     num_training_steps = 10
     grad_clip=5.0
 
-    pmapped_train_step = jax.pmap(
-        update_step,
-        axis_name='batch',
-        in_axes=(0, 0, 0, 0, None, None, None, None),
-        static_broadcasted_argnums =(5, 6, 7))
-
     print('Starting training')
     print('JAX local device count = ', jax.local_device_count())
     start_time = time.time()
@@ -159,14 +161,14 @@ def main(_):
         replicated_batch_stats, 
         loss, 
         grad_norm) = pmapped_train_step(
+            model_class,
+            opt_update_fn,
             replicated_batch_stats,
             replicated_optimizer_state,
             replicated_params,
             sharded_padded_batch,
-            dropout_rng,
-            grad_clip,
-            model_class,
-            opt_update_fn)
+            rng,
+            grad_clip)
         
         print('{}) loss = {} grad_norm = {}'.format(step, loss[0], grad_norm[0]))
 
