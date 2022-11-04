@@ -11,35 +11,31 @@ from absl import logging
 import jax.lax as lax
 import time
 
-# Loading 1 real batch 
-sharded_padded_batch = np.load('sharded_padded_batch.npz')
+from absl import app
+from absl import flags
+from absl import logging
 
-inputs, input_paddings = sharded_padded_batch['inputs']
-targets, target_paddings = sharded_padded_batch['targets']
+_GRAD_CLIP_EPS = 1e-6
 
-print('loaded librispeech sharded padded batch')
-print('inputs shape = ', inputs.shape)
-print('input paddings shape = ', input_paddings.shape)
-print('targets shape = ', targets.shape)
-print('target_paddings shape = ', input_paddings.shape)
+def load_batch():
+    # Loading 1 real batch 
+    sharded_padded_batch = np.load('sharded_padded_batch.npz')
 
-sharded_padded_batch = {
-    'inputs': (inputs, input_paddings),
-    'targets': (targets, target_paddings)
-}
-# Initing model
-config = model.DeepspeechConfig()
-model_class = model.Deepspeech(config)
-rng = jax.random.PRNGKey(0)
-params_rng, dropout_rng = jax.random.split(rng, 2)
+    inputs, input_paddings = sharded_padded_batch['inputs']
+    targets, target_paddings = sharded_padded_batch['targets']
 
-model_init_fn = jax.jit(functools.partial(model_class.init, train=False))
-input_shape = [(320000,), (320000,)]
-fake_input_batch = [np.zeros((2, *x), jnp.float32) for x in input_shape]
+    print('loaded librispeech sharded padded batch')
+    print('inputs shape = ', inputs.shape)
+    print('input paddings shape = ', input_paddings.shape)
+    print('targets shape = ', targets.shape)
+    print('target_paddings shape = ', input_paddings.shape)
 
-print('Initializing model.')
-vars = model_init_fn({'params': params_rng, 'dropout': dropout_rng}, *fake_input_batch)
-batch_stats, params = vars.pop('params')
+    sharded_padded_batch = {
+        'inputs': (inputs, input_paddings),
+        'targets': (targets, target_paddings)
+    }
+
+    return sharded_padded_batch
 
 # Initing optimizer and LR schedule
 def jax_cosine_warmup():
@@ -73,16 +69,8 @@ def init_optimizer_state(params):
 
   return jax_utils.replicate(optimizer_state), opt_update_fn
 
-print('Initializing optimizer')
-replicated_optimizer_state, opt_update_fn = init_optimizer_state(params)
-replicated_params = jax_utils.replicate(params)
-replicated_batch_stats = jax_utils.replicate(params)
 
-# Define pmapped update step 
-
-_GRAD_CLIP_EPS = 1e-6
-
-
+# Defining pmapped update step
 @functools.partial(
     jax.pmap,
     axis_name='batch',
@@ -126,10 +114,10 @@ def pmapped_train_step(model_class,
   grad_norm = jnp.sqrt(
       sum(jnp.sum(g**2) for g in jax.tree_util.tree_leaves(grad)))
 
-#   if grad_clip is not None:
-#     grad_scaling_factor = grad_clip / (grad_norm + _GRAD_CLIP_EPS)
-#     grad_scaling_factor = jax.lax.clamp(min=0.0, x=grad_scaling_factor, max=1.0)
-#     grad = jax.tree_map(lambda x: x * grad_scaling_factor, grad)
+  if grad_clip is not None:
+    grad_scaling_factor = grad_clip / (grad_norm + _GRAD_CLIP_EPS)
+    grad_scaling_factor = jax.lax.clamp(min=0.0, x=grad_scaling_factor, max=1.0)
+    grad = jax.tree_map(lambda x: x * grad_scaling_factor, grad)
 
   updates, new_optimizer_state = opt_update_fn(grad, optimizer_state,
                                                params)
@@ -137,30 +125,55 @@ def pmapped_train_step(model_class,
   return new_optimizer_state, updated_params, new_batch_stats, jnp.mean(loss), jnp.mean(grad_norm)
 
 
-# Starting Training to measure time: 
-
-num_training_steps = 10
-grad_clip=5.0
-
-print('Starting training')
-print('JAX local device count = ', jax.local_device_count())
-start_time = time.time()
-for step in range(num_training_steps):
-    (replicated_optimizer_state, 
-    replicated_params, 
-    replicated_batch_stats, 
-    loss, 
-    grad_norm) = pmapped_train_step(
-        model_class,
-        opt_update_fn,
-        replicated_batch_stats,
-        replicated_optimizer_state,
-        replicated_params,
-        sharded_padded_batch,
-        rng,
-        grad_clip)
+def main(_):
+    sharded_padded_batch = load_batch()
     
-    print('{}) loss = {} grad_norm = {}'.format(step, loss[0], grad_norm[0]))
+    # Initing model
+    config = model.DeepspeechConfig()
+    model_class = model.Deepspeech(config)
+    rng = jax.random.PRNGKey(0)
+    params_rng, dropout_rng = jax.random.split(rng, 2)
 
-end_time = time.time()
-print('JAX program execution took %s seconds' % (end_time - start_time))
+    model_init_fn = jax.jit(functools.partial(model_class.init, train=False))
+    input_shape = [(320000,), (320000,)]
+    fake_input_batch = [np.zeros((2, *x), jnp.float32) for x in input_shape]
+
+    print('Initializing model.')
+    vars = model_init_fn({'params': params_rng, 'dropout': dropout_rng}, *fake_input_batch)
+    batch_stats, params = vars.pop('params')
+
+    print('Initializing optimizer')
+    replicated_optimizer_state, opt_update_fn = init_optimizer_state(params)
+    replicated_params = jax_utils.replicate(params)
+    replicated_batch_stats = jax_utils.replicate(params)
+
+    # Starting Training to measure time: 
+
+    num_training_steps = 10
+    grad_clip=5.0
+
+    print('Starting training')
+    print('JAX local device count = ', jax.local_device_count())
+    start_time = time.time()
+    for step in range(num_training_steps):
+        (replicated_optimizer_state, 
+        replicated_params, 
+        replicated_batch_stats, 
+        loss, 
+        grad_norm) = pmapped_train_step(
+            model_class,
+            opt_update_fn,
+            replicated_batch_stats,
+            replicated_optimizer_state,
+            replicated_params,
+            sharded_padded_batch,
+            rng,
+            grad_clip)
+        
+        print('{}) loss = {} grad_norm = {}'.format(step, loss[0], grad_norm[0]))
+
+    end_time = time.time()
+    print('JAX program execution took %s seconds' % (end_time - start_time))
+
+if __name__ == '__main__':
+    app.run(main)
