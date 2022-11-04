@@ -9,6 +9,7 @@ we simply wget above script and run to install required elements.
 
 ## Code Setup 
 git clone https://github.com/sourabh2k15/deepspeech_timing_diffs.git
+
 cd deepspeech_timing_diffs
 
 ## Data Setup 
