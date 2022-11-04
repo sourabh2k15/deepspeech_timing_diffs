@@ -43,4 +43,4 @@ this is in line with the e2e run here : https://tensorboard.dev/experiment/aXqps
 2) JAX script gives 190 seconds for 10 steps which is much much slower than the full e2e run here which shows a 0.74 steps / second : https://tensorboard.dev/experiment/BOSgqsQGTGugYJ1pDnPHbw/#scalars&_smoothingWeight=0
 
 
-3) above jax e2e script is very similar to e2e run so slowdown is unexpected here.  
+3) above jax e2e script is very similar to e2e run so slowdown is unexpected here, JAX_LOG_RECOMPILES=1 doesn't show any extra recompiles, pmap is also written exactly the same way as e2e run.  
