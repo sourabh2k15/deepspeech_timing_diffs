@@ -12,7 +12,7 @@ import jax.lax as lax
 import time
 
 # Loading 1 real batch 
-sharded_padded_batch = np.load('../sharded_padded_batch.npz')
+sharded_padded_batch = np.load('sharded_padded_batch.npz')
 
 inputs, input_paddings = sharded_padded_batch['inputs']
 targets, target_paddings = sharded_padded_batch['targets']
