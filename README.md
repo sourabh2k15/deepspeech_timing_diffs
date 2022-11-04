@@ -13,11 +13,21 @@ git clone https://github.com/sourabh2k15/deepspeech_timing_diffs.git
 cd deepspeech_timing_diffs
 
 ## Data Setup 
-We use git lfs to store a real 256 size librispeech batch with input and target paddings. 
-In case it's not present when you git clone, please manually download using :
+download using :
 ```
 wget https://transfer.sh/oanN8q/sharded_padded_batch.npz
 ```
+this will give you one sharded batch of real librispeech data with size 256, this batch has input_paddings and target paddings includes.
+
+dimensions:
+
+inputs - (8, 32, 320000)
+
+input_paddings - (8, 32, 320000)
+
+targets - (8, 32, 256)
+
+target_paddings - (8, 32, 256)
 
 # Reproduction
 
