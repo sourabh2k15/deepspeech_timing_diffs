@@ -48,9 +48,9 @@ class DeepspeechConfig:
   batch_norm_momentum: float = 0.999
   batch_norm_epsilon: float = 0.001
   # If None, defaults to 0.1.
-  input_dropout_rate: Optional[float] = 0.1
+  input_dropout_rate: Optional[float] = 0.0
   # If None, defaults to 0.1.
-  feed_forward_dropout_rate: Optional[float] = 0.1
+  feed_forward_dropout_rate: Optional[float] = 0.0
   enable_residual_connections: bool = True
   enable_decoder_layer_norm: bool = True
   bidirectional: bool = True
