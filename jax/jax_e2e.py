@@ -106,7 +106,6 @@ def train_step(model_class,
         mutable=['batch_stats'])
     new_batch_stats = updated_vars['batch_stats']
 
-    new_batch_stats = updated_vars['batch_stats']
     logprobs = nn.log_softmax(logits)
     per_seq_loss = optax.ctc_loss(logprobs,
                                  logit_paddings,
@@ -136,7 +135,7 @@ def train_step(model_class,
 
 
 def main(_):
-    sharded_padded_batch = load_dummy_batch()
+    sharded_padded_batch = load_batch()
     
     # Initing model
     config = model.DeepspeechConfig()
@@ -159,7 +158,7 @@ def main(_):
 
     # Starting Training to measure time: 
 
-    num_training_steps = 10
+    num_training_steps = 100
     grad_clip=5.0
 
 
