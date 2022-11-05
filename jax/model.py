@@ -284,9 +284,9 @@ class BatchNorm(nn.Module):
 
     if train:
       mask = 1.0 - padding
-      sum_v = jnp.sum(inputs * mask, axis=reduce_over_dims, keepdims=True)
+      sum_v = jnp.sum(inputs * mask, axis=reduce_over_dims, keepdims=False)
       count_v = jnp.sum(
-          jnp.ones_like(inputs) * mask, axis=reduce_over_dims, keepdims=True)
+          jnp.ones_like(inputs) * mask, axis=reduce_over_dims, keepdims=False)
 
       sum_v = jax.lax.psum(sum_v, axis_name='batch')
       count_v = jax.lax.psum(count_v, axis_name='batch')
@@ -295,7 +295,7 @@ class BatchNorm(nn.Module):
       mean = sum_v / count_v
       variance = (inputs - mean) * (inputs - mean) * mask
 
-      sum_vv = jnp.sum(variance, axis=reduce_over_dims, keepdims=True)
+      sum_vv = jnp.sum(variance, axis=reduce_over_dims, keepdims=False)
 
       sum_vv = jax.lax.psum(sum_vv, axis_name='batch')
       var = sum_vv / count_v

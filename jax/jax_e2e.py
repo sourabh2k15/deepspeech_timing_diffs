@@ -37,6 +37,19 @@ def load_batch():
 
     return sharded_padded_batch
 
+def load_dummy_batch():
+    batch_size = jax.local_device_count()
+    inputs = np.zeros((batch_size, 32, 1024))
+    input_paddings = np.zeros((batch_size, 32, 1024))
+    targets =  np.zeros((batch_size, 32, 256))
+    target_paddings = np.zeros((batch_size, 32, 256))
+    sharded_padded_batch = {
+        'inputs': (jnp.array(inputs), jnp.array(input_paddings)),
+        'targets': (jnp.array(targets), jnp.array(target_paddings))
+    }
+
+    return sharded_padded_batch
+
 # Initing optimizer and LR schedule
 def jax_cosine_warmup():
   # Create learning rate schedule.
@@ -70,33 +83,28 @@ def init_optimizer_state(params):
   return jax_utils.replicate(optimizer_state), opt_update_fn
 
 
-# Defining pmapped update step
-@functools.partial(
-    jax.pmap,
-    axis_name='batch',
-    in_axes=(None, None, 0, 0, 0, 0, None, None),
-    static_broadcasted_argnums=(0, 1))
-def pmapped_train_step(model_class,
-                       opt_update_fn,
-                       batch_stats,
-                       optimizer_state,
-                       params,
-                       batch,
-                       rng,
-                       grad_clip):
+def train_step(model_class,
+        opt_update_fn,
+        batch_stats,
+        optimizer_state,
+        params,
+        batch,
+        rng,
+        grad_clip):
 
   def _loss_fn(params):
     """Loss function used for training."""
     inputs, input_paddings = batch['inputs']
     targets, target_paddings = batch['targets']
 
-    (logits, logit_paddings), new_batch_stats = model_class.apply(
+    (logits, logit_paddings), updated_vars = model_class.apply(
         {'params': params, 'batch_stats': batch_stats},
         inputs,
         input_paddings,
         train=True,
         rngs={'dropout' : rng},
         mutable=['batch_stats'])
+    new_batch_stats = updated_vars['batch_stats']
 
     logprobs = nn.log_softmax(logits)
     per_seq_loss = optax.ctc_loss(logprobs,
@@ -122,11 +130,12 @@ def pmapped_train_step(model_class,
   updates, new_optimizer_state = opt_update_fn(grad, optimizer_state,
                                                params)
   updated_params = optax.apply_updates(params, updates)
+
   return new_optimizer_state, updated_params, new_batch_stats, jnp.mean(loss), jnp.mean(grad_norm)
 
 
 def main(_):
-    sharded_padded_batch = load_batch()
+    sharded_padded_batch = load_dummy_batch()
     
     # Initing model
     config = model.DeepspeechConfig()
@@ -145,12 +154,19 @@ def main(_):
     print('Initializing optimizer')
     replicated_optimizer_state, opt_update_fn = init_optimizer_state(params)
     replicated_params = jax_utils.replicate(params)
-    replicated_batch_stats = jax_utils.replicate(params)
+    replicated_batch_stats = jax_utils.replicate(batch_stats)
 
     # Starting Training to measure time: 
 
     num_training_steps = 10
     grad_clip=5.0
+
+
+    # Defining pmapped update step
+    bound_train_step = functools.partial(train_step, model_class, opt_update_fn)
+    pmapped_train_step = jax.pmap(bound_train_step,
+            axis_name='batch',
+            in_axes=(0, 0, 0, 0, None, None))
 
     print('Starting training')
     print('JAX local device count = ', jax.local_device_count())
@@ -161,8 +177,6 @@ def main(_):
         replicated_batch_stats, 
         loss, 
         grad_norm) = pmapped_train_step(
-            model_class,
-            opt_update_fn,
             replicated_batch_stats,
             replicated_optimizer_state,
             replicated_params,
