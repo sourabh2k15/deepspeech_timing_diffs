@@ -90,7 +90,7 @@ def pmapped_train_step(model_class,
     inputs, input_paddings = batch['inputs']
     targets, target_paddings = batch['targets']
 
-    (logits, logit_paddings), new_batch_stats = model_class.apply(
+    (logits, logit_paddings), updated_vars = model_class.apply(
         {'params': params, 'batch_stats': batch_stats},
         inputs,
         input_paddings,
@@ -98,6 +98,7 @@ def pmapped_train_step(model_class,
         rngs={'dropout' : rng},
         mutable=['batch_stats'])
 
+    new_batch_stats = updated_vars['batch_stats']
     logprobs = nn.log_softmax(logits)
     per_seq_loss = optax.ctc_loss(logprobs,
                                  logit_paddings,
